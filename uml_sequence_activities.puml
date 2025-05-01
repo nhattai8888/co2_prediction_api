@@ -1,0 +1,466 @@
+' PlantUML File - CO2 Predictor System Diagrams
+
+'=========================================
+'        Use Case Diagram
+'=========================================
+@startuml Use_Case_Diagram
+title Use Case Diagram - CO2 Predictor System
+
+left to right direction
+skinparam packageStyle rectangle
+
+actor Client
+actor Admin
+
+rectangle "Hệ thống CO2-Predictor" {
+  usecase "Đăng nhập" as UC_Login
+  usecase "Đăng ký" as UC_Register
+  usecase "Quản lý Thông tin Cá nhân" as UC_ManageProfile
+  usecase "Nhập Thông tin Sử dụng TB" as UC_InputUsage <<Khảo sát>>
+  usecase "Xem Kết quả Tính toán CO2" as UC_ViewCalc
+  usecase "Xem Dự đoán & So sánh AI" as UC_ViewAI
+  usecase "Xem Đề xuất Giảm thiểu" as UC_ViewReco
+  usecase "Xem Chính sách Xanh" as UC_ViewGreen
+  usecase "Đăng xuất" as UC_Logout
+
+  usecase "Quản lý Người dùng" as UC_ManageUsers
+  usecase "Quản lý Dữ liệu Thiết bị" as UC_ManageDevices
+  usecase "Quản lý Form Khảo sát" as UC_ManageForms
+  usecase "Xem Dashboard & Thống kê" as UC_ViewDashboard
+  usecase "Tìm kiếm Dữ liệu" as UC_SearchData
+  usecase "Xuất Báo cáo" as UC_ExportReport
+  usecase "Trigger Huấn luyện AI" as UC_TriggerTraining
+
+  ' Client Use Cases
+  Client --> UC_Login
+  Client --> UC_Register
+  Client --> UC_ManageProfile
+  Client --> UC_InputUsage
+  Client --> UC_ViewCalc
+  Client --> UC_ViewAI
+  Client --> UC_ViewReco
+  Client --> UC_ViewGreen
+  Client --> UC_Logout
+
+  ' Admin Use Cases
+  Admin --> UC_Login
+  Admin --> UC_ManageUsers
+  Admin --> UC_ManageDevices
+  Admin --> UC_ManageForms
+  Admin --> UC_ViewDashboard
+  Admin --> UC_SearchData
+  Admin --> UC_ExportReport
+  Admin --> UC_TriggerTraining
+  Admin --> UC_Logout ' Admin also logs out
+
+  ' Included Use Cases (Implicitly handled by system)
+  UC_InputUsage ..> UC_ViewCalc : <<include>> ' Viewing result often follows input'
+  UC_ViewCalc ..> UC_ViewAI : <<include>> ' AI prediction shown with calculation'
+  UC_ViewAI ..> UC_ViewReco : <<include>> ' Recommendations based on AI/Calc'
+  UC_ViewAI ..> UC_ViewGreen : <<include>> ' Green initiatives shown alongside'
+
+  ' Admin functions require login
+  UC_ManageUsers ..> UC_Login : <<include>> ' Must be logged in as Admin'
+  UC_ManageDevices ..> UC_Login : <<include>>
+  UC_ManageForms ..> UC_Login : <<include>>
+  UC_ViewDashboard ..> UC_Login : <<include>>
+  UC_SearchData ..> UC_Login : <<include>>
+  UC_ExportReport ..> UC_Login : <<include>>
+  UC_TriggerTraining ..> UC_Login : <<include>>
+
+}
+@enduml
+' End of Use Case Diagram
+
+newpage
+'=========================================
+'        Sequence Diagram - User Login
+'=========================================
+@startuml Sequence_Diagram_User_Login
+title Sequence Diagram - User Login
+
+actor Client as C
+participant Frontend as FE
+participant BackendAPI as BE
+participant AuthService as AuthSvc
+participant UserRepo as DB
+
+C -> FE: Nhập username & password, nhấn Login
+activate FE
+FE -> BE: POST /auth/login (credentials)
+activate BE
+BE -> AuthSvc: authenticate_user(username, password)
+activate AuthSvc
+AuthSvc -> DB: find_by_username(username)
+activate DB
+DB --> AuthSvc: user_data (incl. password_hash)
+deactivate DB
+AuthSvc -> AuthSvc: Verify password(password, hash)
+alt Credentials Correct
+    AuthSvc -> AuthSvc: create_access_token(user_id, role)
+    AuthSvc --> BE: access_token
+else Credentials Incorrect
+    AuthSvc --> BE: Error: Invalid Credentials
+end
+deactivate AuthSvc
+alt Authentication Successful
+    BE --> FE: { access_token: "..." }
+else Authentication Failed
+    BE --> FE: Error 401 Unauthorized
+end
+deactivate BE
+alt Login Success
+    FE -> FE: Store token, redirect to Dashboard/Home
+    FE --> C: Hiển thị giao diện đã đăng nhập
+else Login Failed
+    FE --> C: Hiển thị thông báo lỗi
+end
+deactivate FE
+@enduml
+' End of Sequence Diagram - User Login
+
+
+newpage
+'=========================================
+' Sequence Diagram - Client Calculates CO2
+'=========================================
+@startuml Sequence_Diagram_Client_Calculates_CO2
+title Sequence Diagram - Client Calculates CO2
+
+actor Client as C
+participant Frontend as FE
+participant BackendAPI as BE
+participant AuthService as AuthSvc
+participant DeviceService as DeviceSvc
+participant CalculationService as CalcSvc
+participant AIService as AISvc
+participant RecoService as RecoSvc
+participant Database as DB
+participant ExternalData as Ext
+
+C -> FE: Truy cập trang Tính CO2
+activate FE
+FE -> BE: GET /devices (Authorization: Bearer token)
+activate BE
+BE -> AuthSvc: get_current_user(token)
+activate AuthSvc
+AuthSvc --> BE: user_object
+deactivate AuthSvc
+BE -> DeviceSvc: list_devices()
+activate DeviceSvc
+DeviceSvc -> DB: find(devices)
+activate DB
+DB --> DeviceSvc: device_list
+deactivate DB
+DeviceSvc --> BE: device_list
+deactivate DeviceSvc
+BE --> FE: device_list
+deactivate BE
+FE --> C: Hiển thị form (chọn thiết bị, nhập giờ)
+C -> FE: Chọn Thiết bị A, Nhập 5 giờ, Gửi
+FE -> BE: POST /calculate (Authorization: Bearer token, data: {device_id: 'A', usage_hours: 5})
+activate BE
+BE -> AuthSvc: get_current_user(token) ' Re-validate or use cached user
+activate AuthSvc
+AuthSvc --> BE: user_object
+deactivate AuthSvc
+BE -> CalcSvc: calculate_co2(user, device_id='A', usage_hours=5)
+activate CalcSvc
+CalcSvc -> DB: find_one(devices, id='A')
+activate DB
+DB --> CalcSvc: device_data
+CalcSvc -> DB: insert_one(calculations, result_data)
+DB --> CalcSvc: inserted_id
+deactivate DB
+CalcSvc --> BE: calculation_result
+deactivate CalcSvc
+BE -> AISvc: predict(features={...})
+activate AISvc
+AISvc -> AISvc: Load model, predict
+AISvc -> DB: store(prediction_result)
+activate DB
+DB --> AISvc: OK
+deactivate DB
+AISvc --> BE: prediction_result
+deactivate AISvc
+BE -> RecoSvc: generate_recommendations(user, calc_result, pred_result)
+activate RecoSvc
+RecoSvc -> DB: find(devices, filter=similar)
+activate DB
+DB --> RecoSvc: similar_devices_data
+deactivate DB
+RecoSvc -> Ext: GET /green-initiatives (Optional)
+activate Ext
+Ext --> RecoSvc: initiatives_data
+deactivate Ext
+RecoSvc --> BE: recommendations_list
+deactivate RecoSvc
+BE --> FE: { calculation: ..., prediction: ..., recommendations: ... }
+deactivate BE
+FE --> C: Hiển thị kết quả tổng hợp (tính toán, AI, đề xuất)
+deactivate FE
+@enduml
+' End of Sequence Diagram - Client Calculates CO2
+
+
+newpage
+'=================================================
+' Sequence Diagram - Backend Calculation & AI Processing
+'=================================================
+@startuml Sequence_Diagram_Backend_Calculation_AI
+title Sequence Diagram - Backend Calculation & AI Processing
+
+participant APIEndpoint as API
+participant AuthService as AuthSvc
+participant CalculationService as CalcSvc
+participant AIService as AISvc
+participant RecommendationService as RecoSvc
+participant UserRepo
+participant DeviceRepo
+participant CalculationRepo
+participant PredictionRepo
+participant ExternalDataSource as ExtData
+
+API -> AuthSvc: Verify Token & Get User
+activate AuthSvc
+AuthSvc -> UserRepo: Find User
+UserRepo --> AuthSvc: User Data
+AuthSvc --> API: Authenticated User
+deactivate AuthSvc
+
+API -> CalcSvc: calculate_co2(user, device_id, usage_hours)
+activate CalcSvc
+CalcSvc -> DeviceRepo: Find Device by ID
+DeviceRepo --> CalcSvc: Device Data (power, factor)
+CalcSvc -> CalcSvc: Perform Calculation
+CalcSvc -> CalculationRepo: Save Calculation Result
+CalculationRepo --> CalcSvc: Saved Result ID
+CalcSvc --> API: CalculationResult Object
+deactivate CalcSvc
+
+API -> AISvc: predict(features)
+activate AISvc
+AISvc -> AISvc: Load Model, Preprocess, Predict
+AISvc -> PredictionRepo: Save Prediction Result
+PredictionRepo --> AISvc: Saved Result ID
+AISvc --> API: PredictionResult Object
+deactivate AISvc
+
+API -> RecoSvc: generate_recommendations(...)
+activate RecoSvc
+RecoSvc -> DeviceRepo: Find similar devices
+DeviceRepo --> RecoSvc: Similar Device Data
+RecoSvc -> ExtData: Fetch Green Initiatives
+ExtData --> RecoSvc: Initiatives Data
+RecoSvc --> RecoSvc: Compile Recommendations
+RecoSvc --> API: List of Recommendations
+deactivate RecoSvc
+
+API --> Client: Combined Response (Implicit)
+@enduml
+' End of Sequence Diagram - Backend Calculation & AI
+
+
+newpage
+'=========================================
+' Sequence Diagram - Admin Exports Report
+'=========================================
+@startuml Sequence_Diagram_Admin_Exports_Report
+title Sequence Diagram - Admin Exports Report
+
+actor Admin as A
+participant Frontend as FE
+participant BackendAPI as BE
+participant AuthService as AuthSvc
+participant ReportService as ReportSvc
+participant DataRepository as DB 
+' Generic repo'
+
+A -> FE: Truy cập Dashboard -> Chọn Xuất Báo Cáo (Excel)
+activate FE
+FE -> BE: POST /admin/reports/export (Authorization: Bearer token, data: {format: 'excel', ...})
+activate BE
+BE -> AuthSvc: get_current_user(token)
+activate AuthSvc
+AuthSvc -> AuthSvc: Verify Admin Role
+AuthSvc --> BE: admin_user_object
+deactivate AuthSvc
+BE -> ReportSvc: generate_report(format='excel', ...)
+activate ReportSvc
+ReportSvc -> DB: find/aggregate(collection, filters)
+activate DB
+DB --> ReportSvc: data_to_export
+deactivate DB
+ReportSvc -> ReportSvc: Format data to Excel (e.g., using Pandas)
+ReportSvc --> BE: excel_file_content / path
+deactivate ReportSvc
+BE --> FE: File Download Response (Content-Type: application/vnd.ms-excel)
+deactivate BE
+FE -> A: Trình duyệt tải file Excel về
+deactivate FE
+@enduml
+' End of Sequence Diagram - Admin Exports Report
+
+
+newpage
+'=========================================
+'        Activity Diagram - User Login
+'=========================================
+@startuml Activity_Diagram_User_Login
+title Activity Diagram - User Login
+
+start
+:Hiển thị màn hình Login;
+:Người dùng nhập Username & Password;
+:Người dùng nhấn nút Login;
+:Gửi thông tin đăng nhập đến Backend;
+if (Backend xác thực thành công?) then (yes)
+  :Backend tạo và trả về Access Token;
+  :Frontend lưu Token;
+  :Chuyển hướng đến trang chính (Dashboard/Home);
+  :Hiển thị giao diện đã đăng nhập;
+else (no)
+  :Backend trả về lỗi (401 Unauthorized);
+  :Frontend hiển thị thông báo lỗi đăng nhập;
+  :Giữ nguyên ở màn hình Login;
+endif
+stop
+@enduml
+' End of Activity Diagram - User Login
+
+
+newpage
+'==================================================
+'        Activity Diagram - Client CO2 Calculation
+'==================================================
+@startuml Activity_Diagram_Client_CO2_Calculation
+title Activity Diagram - Client CO2 Calculation
+
+start
+:Client truy cập trang Tính toán CO2;
+:Hệ thống tải danh sách thiết bị;
+:Hiển thị Form cho Client;
+:Client chọn Thiết bị;
+:Client nhập Số giờ sử dụng;
+:Client nhấn nút "Tính toán";
+:Frontend gửi yêu cầu (thiết bị, giờ) đến Backend;
+partition Backend {
+  :Xác thực Client;
+  if (Xác thực thành công?) then (yes)
+    :Tính toán CO2 (giờ, tháng);
+    :Lưu kết quả tính toán;
+    :Gọi AI để dự đoán CO2;
+    :Lưu kết quả dự đoán;
+    :Tạo đề xuất & so sánh;
+    :Lấy thông tin Chính sách xanh;
+    :Tổng hợp kết quả trả về;
+  else (no)
+    :Trả lỗi (e.g., 401);
+  endif
+}
+if (Nhận phản hồi thành công từ Backend?) then (yes)
+  :Frontend hiển thị Kết quả tính toán;
+  :Hiển thị Dự đoán AI;
+  :Hiển thị Biểu đồ so sánh;
+  :Hiển thị Đề xuất;
+  :Hiển thị Chính sách xanh;
+else (no)
+  :Frontend hiển thị thông báo lỗi;
+endif
+stop
+@enduml
+' End of Activity Diagram - Client CO2 Calculation
+
+
+newpage
+'=================================================
+'        Activity Diagram - Backend Processing & AI
+'=================================================
+@startuml Activity_Diagram_Backend_Processing_AI
+title Activity Diagram - Backend Processing & AI
+
+start
+:Nhận yêu cầu POST /calculate từ Client;
+:Gọi AuthService để xác thực Token;
+if (Token hợp lệ và User tồn tại?) then (yes)
+  :Lấy thông tin User;
+  :Lấy thông tin Device từ request;
+  :Gọi CalculationService.calculate_co2;
+  partition CalculationService {
+    :Lấy chi tiết Device (power, factor) từ DB;
+    :Thực hiện tính toán CO2 giờ/tháng;
+    :Lưu CalculationResult vào DB;
+    :Trả về CalculationResult;
+  }
+  :Lấy features từ dữ liệu đầu vào & kết quả tính toán;
+  :Gọi AIService.predict;
+  partition AIService {
+    :Load model & scaler;
+    :Tiền xử lý features;
+    :Thực hiện dự đoán;
+    :Lưu PredictionResult vào DB;
+    :Trả về PredictionResult (dự đoán, MAE, RMSE);
+  }
+  :Gọi RecommendationService.generate_recommendations;
+   partition RecommendationService {
+    :Phân tích kết quả tính toán & dự đoán;
+    :Truy vấn DB lấy các thiết bị tương tự để so sánh;
+    :Gọi nguồn dữ liệu ngoài lấy chính sách xanh;
+    :Tổng hợp danh sách đề xuất;
+    :Trả về List<Recommendation>;
+  }
+  :Xây dựng response tổng hợp (calculation, prediction, recommendations);
+  :Trả response 200 OK cho Client;
+else (no)
+  :Trả response lỗi 401 Unauthorized;
+endif
+stop
+@enduml
+' End of Activity Diagram - Backend Processing & AI
+
+
+newpage
+'==================================================
+'        Activity Diagram - Admin Edits User
+'==================================================
+@startuml Activity_Diagram_Admin_Edits_User
+title Activity Diagram - Admin Edits User
+
+start
+:Admin đăng nhập thành công;
+:Admin truy cập trang Quản lý Người dùng;
+:Hệ thống hiển thị danh sách người dùng;
+:Admin chọn một người dùng và nhấn "Chỉnh sửa";
+:Hệ thống hiển thị Form với thông tin người dùng hiện tại;
+:Admin thay đổi thông tin trong Form;
+:Admin nhấn nút "Lưu";
+:Frontend gửi yêu cầu PUT /admin/users/{id} với dữ liệu mới;
+partition Backend {
+ :Xác thực Admin (qua Token);
+ if (Admin hợp lệ?) then (yes)
+   :Validate dữ liệu đầu vào;
+   if (Dữ liệu hợp lệ?) then (yes)
+     :Gọi UserService.update_user;
+      partition UserService {
+       :Cập nhật thông tin User trong DB;
+       :Trả về thông tin User đã cập nhật;
+      }
+     :Trả response 200 OK (Success);
+   else (no)
+     :Trả response lỗi 400 Bad Request (Validation Error);
+   endif
+ else (no)
+   :Trả response lỗi 403 Forbidden;
+ endif
+}
+if (Nhận phản hồi thành công?) then (yes)
+  :Frontend cập nhật lại danh sách Users;
+  :Hiển thị thông báo thành công;
+  :Quay lại màn hình danh sách Users;
+else (no)
+  :Frontend hiển thị thông báo lỗi (từ Backend);
+  :Giữ nguyên Form chỉnh sửa;
+endif
+stop
+@enduml
+' End of Activity Diagram - Admin Edits User

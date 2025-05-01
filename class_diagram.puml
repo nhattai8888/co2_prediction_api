@@ -1,0 +1,295 @@
+@startuml Class Diagram
+
+skinparam classAttributeIconSize 0
+hide empty members
+
+package CoreEntities {
+  abstract class User {
+    # user_id: string
+    # username: string
+    # password_hash: string
+    # email: string
+    # role: UserRole
+    # created_at: datetime
+    # updated_at: datetime
+    + {abstract} update_profile(data): void
+  }
+
+  enum UserRole {
+    CLIENT
+    ADMIN
+  }
+
+  class Client extends User {
+    - calculation_history: List<CalculationResult>
+    + update_profile(data): void
+    + submit_survey(input: UsageInput): void
+  }
+
+  class Admin extends User {
+    + update_profile(data): void
+    + manage_user(action, user_data): void
+    + manage_device(action, device_data): void
+    + export_data(format, options): File
+  }
+
+  class Device {
+    - device_id: string
+    - name: string
+    - type: string
+    - power_consumption: float 
+    ' Watts
+    - default_emission_factor: float 
+    ' kg CO2/kWh
+  }
+
+  class UsageInput {
+    - user_id: string
+    - device_id: string
+    - usage_hours: float
+    - timestamp: datetime
+  }
+
+  class CalculationResult {
+    - result_id: string
+    - user_id: string
+    - device_id: string
+    - usage_hours: float
+    - calculated_co2_hourly: float
+    - calculated_co2_monthly: float
+    - timestamp: datetime
+  }
+
+  class PredictionResult {
+    - prediction_id: string
+    - user_id: string
+    - device_id: string
+    - input_features: dict
+    - predicted_co2: float
+    - mae: float
+    - rmse: float
+    - model_version: string
+    - timestamp: datetime
+  }
+
+  class Recommendation {
+    - recommendation_id: string
+    - type: RecommendationType
+    - description: string
+    - related_device_type: string
+  }
+
+  enum RecommendationType {
+    USAGE_OPTIMIZATION
+    DEVICE_SWITCH
+    GREEN_INITIATIVE
+  }
+}
+
+package Services {
+  interface IAuthService {
+    + register_user(data): User
+    + authenticate_user(username, password): string 
+    ' Returns token
+    + get_current_user(token): User
+  }
+
+  interface ICalculationService {
+    + calculate_co2(usage_input: UsageInput): CalculationResult
+  }
+
+  interface IAIService {
+    + train_model(data): void
+    + predict(features: dict): PredictionResult
+    + evaluate_model(): dict 
+    ' Returns {mae, rmse}
+  }
+
+  interface IRecommendationService {
+    + generate_recommendations(user: User, calc: CalculationResult, pred: PredictionResult): List<Recommendation>
+    + fetch_green_initiatives(): List<Recommendation>
+  }
+
+  interface IUserService {
+    + get_user(user_id): User
+    + create_user(data): User 
+    ' Used by Admin or Register
+    + update_user(user_id, data): User
+    + delete_user(user_id): void
+  }
+
+  interface IDeviceService {
+    + get_device(device_id): Device
+    + add_device(data): Device
+    + update_device(device_id, data): Device
+    + delete_device(device_id): void
+    + list_devices(filters): List<Device>
+  }
+
+  interface IReportService {
+     + generate_report(format: string, type: string, filters: dict): File
+  }
+
+  class AuthService implements IAuthService {
+    - user_repo: IUserRepository
+    + register_user(data): User
+    + authenticate_user(username, password): string
+    + get_current_user(token): User
+  }
+
+  class CalculationService implements ICalculationService {
+     - device_repo: IDeviceRepository
+     - calculation_repo: ICalculationRepository
+     + calculate_co2(usage_input: UsageInput): CalculationResult
+  }
+
+  class NeuralNetworkPredictor implements IAIService {
+    - model: object 
+    
+    ' TF/PyTorch model
+    - scaler: object
+    - prediction_repo: IPredictionRepository
+    + train_model(data): void
+    + predict(features: dict): PredictionResult
+    + evaluate_model(): dict
+  }
+
+  class RecommendationService implements IRecommendationService {
+     - device_repo: IDeviceRepository
+     - external_data_source: object 
+     ' For initiatives
+     + generate_recommendations(...): List<Recommendation>
+     + fetch_green_initiatives(): List<Recommendation>
+  }
+
+  class UserService implements IUserService {
+     - user_repo: IUserRepository
+     + get_user(user_id): User
+     + create_user(data): User
+     + update_user(user_id, data): User
+     + delete_user(user_id): void
+  }
+
+  class DeviceService implements IDeviceService {
+     - device_repo: IDeviceRepository
+     + get_device(device_id): Device
+     + add_device(data): Device
+     + update_device(device_id, data): Device
+     + delete_device(device_id): void
+     + list_devices(filters): List<Device>
+  }
+
+  class ReportService implements IReportService {
+     - data_repo: object 
+     ' Generic repo access
+     + generate_report(format, type, filters): File
+  }
+}
+
+package DataAccessLayer {
+  interface IUserRepository {
+     + find_by_id(user_id): User
+     + find_by_username(username): User
+     + save(user: User): User
+     + delete(user_id): void
+     + list_all(filters): List<User>
+  }
+  interface IDeviceRepository {
+     + find_by_id(device_id): Device
+     + save(device: Device): Device
+     + delete(device_id): void
+     + list_all(filters): List<Device>
+     + find_similar(type): List<Device>
+  }
+  interface ICalculationRepository {
+     + save(calc: CalculationResult): CalculationResult
+     + find_by_user(user_id): List<CalculationResult>
+     + aggregate(pipeline): List[dict]
+  }
+  interface IPredictionRepository {
+     + save(pred: PredictionResult): PredictionResult
+  }
+  
+  ' Concrete implementations for MongoDB would exist but are not shown for brevity
+}
+
+package API {
+  class BaseController {
+     # auth_service: IAuthService
+  }
+  class AuthController extends BaseController {
+    + login(credentials): TokenResponse
+    + register(data): UserResponse
+  }
+  class UserController extends BaseController {
+    # user_service: IUserService
+    + get_my_profile(): UserResponse
+    + update_my_profile(data): UserResponse
+  }
+  class CalculatorController extends BaseController {
+     # calculation_service: ICalculationService
+     # ai_service: IAIService
+     # recommendation_service: IRecommendationService
+     # device_service: IDeviceService
+     + get_devices(): List<DeviceResponse>
+     + post_calculate(input: UsageInput): CalculationResponse
+  }
+  class AdminController extends BaseController {
+     # user_service: IUserService
+     # device_service: IDeviceService
+     # report_service: IReportService
+     + get_users(filters): List<UserResponse>
+     + create_user(data): UserResponse
+     + update_user(user_id, data): UserResponse
+     + delete_user(user_id): StatusResponse
+     
+     ' ... other admin methods (devices, reports)
+     + post_export_report(options): FileResponse
+  }
+}
+
+
+' Relationships
+CoreEntities.User <|-- CoreEntities.Client
+CoreEntities.User <|-- CoreEntities.Admin
+CoreEntities.User *-- CoreEntities.UserRole
+
+Services.AuthService ..|> Services.IAuthService
+Services.CalculationService ..|> Services.ICalculationService
+Services.NeuralNetworkPredictor ..|> Services.IAIService
+Services.RecommendationService ..|> Services.IRecommendationService
+Services.UserService ..|> Services.IUserService
+Services.DeviceService ..|> Services.IDeviceService
+Services.ReportService ..|> Services.IReportService
+
+Services.AuthService o-- DataAccessLayer.IUserRepository
+Services.CalculationService o-- DataAccessLayer.IDeviceRepository
+Services.CalculationService o-- DataAccessLayer.ICalculationRepository
+Services.NeuralNetworkPredictor o-- DataAccessLayer.IPredictionRepository
+Services.RecommendationService o-- DataAccessLayer.IDeviceRepository
+Services.UserService o-- DataAccessLayer.IUserRepository
+Services.DeviceService o-- DataAccessLayer.IDeviceRepository
+Services.ReportService o-- DataAccessLayer.ICalculationRepository 
+' Example dependency
+
+API.BaseController o-- Services.IAuthService
+API.UserController o-- Services.IUserService
+API.CalculatorController o-- Services.ICalculationService
+API.CalculatorController o-- Services.IAIService
+API.CalculatorController o-- Services.IRecommendationService
+API.CalculatorController o-- Services.IDeviceService
+API.AdminController o-- Services.IUserService
+API.AdminController o-- Services.IDeviceService
+API.AdminController o-- Services.IReportService
+
+
+' Dependencies on Core Entities (Examples)
+CoreEntities.Client --> CoreEntities.CalculationResult : has >
+CoreEntities.CalculationResult o-- CoreEntities.Device
+CoreEntities.CalculationResult o-- CoreEntities.User
+CoreEntities.UsageInput o-- CoreEntities.User
+CoreEntities.UsageInput o-- CoreEntities.Device
+CoreEntities.PredictionResult o-- CoreEntities.User
+CoreEntities.PredictionResult o-- CoreEntities.Device
+
+@enduml
